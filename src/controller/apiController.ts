@@ -12,9 +12,22 @@ import { EUserRole } from '../constant/userConstant'
 import config from '../config/config'
 import emailService from '../service/emailService'
 import logger from '../util/logger'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+
+dayjs.extend(utc)
 
 interface IRegisterRequest extends Request {
     body: IRegisterRequestBody
+}
+
+interface IConfirmRequest extends Request {
+    params: {
+        token: string
+    }
+    query : {
+        code: string
+    }
 }
 
 export default {
@@ -124,6 +137,45 @@ export default {
             httpError(next, err, req, 500)
         }
     },
+
+    confirmation:async (req:Request, res:Response, next:NextFunction) => {
+        try{
+            const{params, query} = req as IConfirmRequest
+            const{token} = params
+            const{code} = query
+            // Fectch user By Token & code 
+            const user = await databaseService.findUserByConfirmationTokenAndCode(token, code)
+            if(!user){
+              return  httpError(next, new Error(responseMessage.INVALID_ACCOUNT_CONFIRMATION_TOKEN_OR_CODE) , req, 400 )
+            }
+            // Check if Account alredy confirm
+
+            if(user.accountConfirmation.status){
+                return httpError(next, new Error(responseMessage.ACCOUNT_ALREADY_CONFIRMED), req, 500)
+            }
+            // Account confirm
+            user.accountConfirmation.status= true
+            user.accountConfirmation.timestamp= dayjs().utc().toDate()
+
+            await user.save()
+
+
+            // Account confirmation mail send 
+               
+            const to = [user.emailAddress]
+             const subject= 'Account confirmed'
+            const text = `Hey ${user.name}, your account has been confirmed `
+            
+            emailService.sendEmail(to, subject, text).catch((err) => {
+                logger.error('EMAIL_SERVICE', {
+                    meta:err
+                })
+            })
+            httpResponse(req , res ,200, responseMessage.SUCCESS)
+        } catch (err) {
+            httpError (next, err, req, 500)
+        }
+    }
 
 
 }

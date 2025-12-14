@@ -20,7 +20,16 @@ export default {
 
     registerUser: (payload:IUser) => {
         return userModel.create(payload)
+    },
+
+    findUserByConfirmationTokenAndCode: (token: string, code: string) => {
+        return userModel.findOne({
+            'accountConfirmation.token': token,
+            'accountConfirmation.code': code
+        })
     }
+
+
 
 
 }
