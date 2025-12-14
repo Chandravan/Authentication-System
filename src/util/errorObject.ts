@@ -5,7 +5,7 @@ import config from '../config/config'
 import { EApplicationEnvironment } from '../constant/application'
 
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-export default (err: Error | unknown, req: Request, errorStatusCode: number = 5000): tHttpError => {
+export default (err: Error | unknown, req: Request, errorStatusCode: number = 500 ): tHttpError => {
     const errorObj: tHttpError = {
         success: false,
         statusCode: errorStatusCode,

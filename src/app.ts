@@ -15,13 +15,14 @@ app.use(express.static(path.join(__dirname, '../', 'public')))
 app.use('/api/v1', router)
 
 //404 Handler
-app.use((req: Request, _: Response, next: NextFunction) => {
+ app.use((req: Request, _: Response, next: NextFunction) => {
     try {
         throw new Error(responseMessage.NOT_Found('route'))
     } catch (err) {
         httpError(next, err, req, 404)
     }
 })
+    
 
 //Global Error Handler
 app.use(globalErrorHandler)
