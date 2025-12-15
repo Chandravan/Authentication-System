@@ -2,7 +2,9 @@ import { getTimezonesForCountry } from 'countries-and-timezones'
 import { parsePhoneNumberWithError } from 'libphonenumber-js'
 import bcrypt from 'bcrypt'
 import {v4} from 'uuid'
-import { randomInt } from 'crypto'
+import { randomInt, verify } from 'crypto'
+import jwt, { TokenExpiredError } from 'jsonwebtoken';
+
 
 
 export default { 
@@ -45,5 +47,27 @@ generateOtp: (length: number) => {
     const max = Math.pow(10, length)-1
 
     return randomInt(min, max).toString()
+},
+
+comparePassword: (newPassword: string, encryptedPassword: string) => {
+    return bcrypt.compare(newPassword, encryptedPassword)
+},
+
+generateToken: ( payload: object, secret:string, expiry:number) => {
+  return jwt.sign(payload, secret, {
+    expiresIn: expiry
+  })
+},
+
+verifyToken: (Token:string, ACCESS_TOKEN_SECRET:string) => {
+    return jwt.verify(Token, ACCESS_TOKEN_SECRET)
+},
+getDomainFromUrl:( url: string) => {
+     try {
+                    const parsedUrl = new URL(url)
+                  return   parsedUrl.hostname
+                } catch (err){
+                    throw err
+                }
 }
 }

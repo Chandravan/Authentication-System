@@ -7,5 +7,7 @@ export default {
         return `${entity} is already exist with ${identifier} `
     },
     INVALID_ACCOUNT_CONFIRMATION_TOKEN_OR_CODE: `Invalid accout confirmation or code `,
-    ACCOUNT_ALREADY_CONFIRMED: `Account alredy confirm`
+    ACCOUNT_ALREADY_CONFIRMED: `Account alredy confirm`,
+    INVALID_EMAIL_OR_PASSWORD: `Invalid email or password`,
+    UNAUTHORISED: `You are not authorised to perform this action`
 }

@@ -4,8 +4,11 @@ import router from './router/apiRouter'
 import globalErrorHandler from './middleware/globalErrorHandler'
 import responseMessage from './constant/responseMessage'
 import httpError from './util/httpError'
+import cookieParser from 'cookie-parser'
 
 const app: Application = express()
+
+app.use(cookieParser())
 
 //MiddleWare
 app.use(express.json())
