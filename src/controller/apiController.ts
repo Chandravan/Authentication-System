@@ -2,8 +2,8 @@ import { NextFunction, Request, Response } from 'express'
 import httpResponse from '../util/httpResponse'
 import responseMessage from '../constant/responseMessage'
 import httpError from '../util/httpError'
-import { ILoginRequestBody, IRefreshToken, IRegisterRequestBody, IUser } from '../types/userTypes'
-import { validateJoiSchema, validateLoginBody, validateRegistorBody } from '../service/validationService'
+import { IChangePasswordRequestBody, IForgotPasswordRequestBody, ILoginRequestBody, IRefreshToken, IRegisterRequestBody, IResetPasswordRequestBody, IUser, IUserWithId } from '../types/userTypes'
+import { validateChangePasswordBody, validateForgotBody, validateJoiSchema, validateLoginBody, validateRegistorBody, validateResetBody } from '../service/validationService'
 import quicker from '../util/quicker'
 
 
@@ -15,7 +15,7 @@ import logger from '../util/logger'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { EApplicationEnvironment } from '../constant/application'
-import { string } from 'joi'
+import { IDecryptedJwt } from '../types/userTypes'
 
 dayjs.extend(utc)
 
@@ -39,6 +39,24 @@ interface IConfirmRequest extends Request {
 interface ISelfIdentificationRequest extends Request {
     authenticatedUser: IUser
 }
+
+interface IChangePasswordRequest extends Request {
+    authenticatedUser: IUserWithId
+    body:IChangePasswordRequestBody
+}
+    
+
+interface IForgotPasswordRequest extends Request {
+    body: IForgotPasswordRequestBody
+}
+interface IResetPasswordRequest extends Request {
+    params: {
+        token:string
+    }
+    body: IResetPasswordRequestBody
+}
+
+
 
 export default {
     self: (req: Request, res: Response, next: NextFunction) => {
@@ -317,7 +335,221 @@ export default {
 
         }
 
+    },
+
+    refreshToken: async(req:Request, res:Response, next:NextFunction) => {
+        try{
+            const{cookies}= req
+            const{refreshToken , accessToken}= cookies as {
+                refreshToken: string | undefined
+                accessToken: string | undefined
+            }
+            if (accessToken){
+                return httpResponse(req, res ,200, responseMessage.SUCCESS ,{
+                    accessToken
+                })
+            }
+
+
+            if (refreshToken){
+                //fetch token from db
+            const rft = await databaseService.findRefreshToken(refreshToken)
+            if (rft){
+                //Generate new Acces Token
+                const DOMAIN = quicker.getDomainFromUrl(config.SERVER_URL as string)
+
+                const {userId} = quicker.verifyToken(refreshToken, config.REFRESH_TOKEN.REFRESH_TOKEN_SECRET as string) as IDecryptedJwt
+
+                // Access Token
+                const accessToken = quicker.generateToken(
+                    {
+                        userId:userId
+                    },
+                    config.ACCESS_TOKEN.ACCESS_TOKEN_SECRET as string,
+                    config.ACCESS_TOKEN.EXPIRY
+                )
+
+                // generate new Acces token
+                res.cookie('accessToken', accessToken, {
+                    path:'/api/v1',
+                    domain:DOMAIN,
+                    sameSite: 'strict',
+                    maxAge: 1000 * config.ACCESS_TOKEN.EXPIRY,
+                    httpOnly: true,
+                    secure: !(config.ENV ===EApplicationEnvironment.DEVELOPMENT)
+                })
+
+                return httpResponse(req,res,200,responseMessage.SUCCESS, {
+                    accessToken
+                })
+
+
+            }
+            }
+           httpError(next, new Error(responseMessage.UNAUTHORISED), req,401)
+
+        } catch (err){
+            httpError(next, err, req,500)
+        }
+    },
+
+    forgotPassword: async(req: Request, res:Response, next:NextFunction) => {
+        try{
+            // todo
+            // parsing Body 
+            const{ body } = req as IForgotPasswordRequest
+            // validate Body 
+            const { value , error} = validateJoiSchema<IForgotPasswordRequestBody>(validateForgotBody, body)
+            if ( error){
+                return httpError (next, error, req,422)
+            }
+
+            const {emailAddress } = value
+            
+            // find user by Email Address
+
+            const user = await databaseService.findUserByEmailAddress(emailAddress)
+            if (!user) {
+                return httpError(next, new Error(responseMessage.NOT_Found('user')), req, 404)
+            }
+            // check if user account id confirmed
+            if (!user.accountConfirmation.status) {
+                return httpError( next, new Error(responseMessage.ACCOUNT_CONFIRMATION_REQUIRED), req ,400 )
+            }
+            // password reset token & expiry
+            const token = quicker.generateRandomId()
+            const expiry = quicker.generateResetPasswordExpiry(15)
+            // update user
+
+            user.passwordReset.token = token
+            user.passwordReset.expiry= expiry
+            await user.save()
+            // Send email 
+
+            const resetUrl =`${config.FRONTEND_URL}/reset-password/${token}`
+            const to = [emailAddress]
+            const subject = 'Reset Your Account'
+            const text = `Hey ${user.name}, Please reset Your account by clicking on the link given below \n\nLink will expire within 15 min\n\n ${resetUrl}  `
+            
+            emailService.sendEmail(to, subject, text).catch((err) => {
+                logger.error('EMAIL_SERVICE', {
+                    meta:err
+                })
+            })
+
+            httpResponse( req , res , 200 , responseMessage.SUCCESS)
+    } catch (err) {
+        httpError(next , err, req, 500)
     }
+    },
+
+    resetPassword:async(req:Request, res:Response, next:NextFunction) => {
+        try { //tod0
+            // Body parsing & validate
+            const {body , params} = req as IResetPasswordRequest
+            const {token}= params
+
+            const {value, error}= validateJoiSchema<IResetPasswordRequestBody>(validateResetBody, body)
+            if(error){
+                return httpError(next, error, req,422)
+            }
+
+
+            // fetch user by token
+            const user = await databaseService.findUserByResetToken(token)
+            if(!user){
+              return  httpError(next, new Error(responseMessage.NOT_Found('user')), req,404)
+            }
+            // chek ii user account is confirmed 
+            if(!user.accountConfirmation.status){
+                return httpError(next, new Error(responseMessage.ACCOUNT_CONFIRMATION_REQUIRED), req,400)
+            }
+            const {newPassword}= value
+            // check expiry of the  url
+            const storedExpiry = user.passwordReset.expiry
+            const currentTimestamp = dayjs().valueOf()
+            if(!storedExpiry){
+              return  httpError(next, new Error(responseMessage.INVALID_REQUEST), req ,400)
+            }
+
+            if(currentTimestamp >storedExpiry){
+                httpError(next , new Error(responseMessage.EXPIRED_URL), req,400)
+            }
+            // hash new password
+            const hashedPassword = await quicker.hashPassword(newPassword)
+            // user update
+
+            user.password= hashedPassword
+            user.passwordReset.token= null
+            user.passwordReset.expiry=null
+            user.passwordReset.lastResetAt= dayjs().utc().toDate()
+            await user.save()
+            // Email send 
+            const to = [user.emailAddress]
+            const subject = 'Reset Account password '
+            const text = `Hey ${user.name}, your account password has been reset successfully. `
+            
+            emailService.sendEmail(to, subject, text).catch((err) => {
+                logger.error('EMAIL_SERVICE', {
+                    meta:err
+                })
+            })
+            httpResponse(req,res,200, responseMessage.SUCCESS)
+        } catch(err) {
+            httpError(next,err, req,500)
+        }
+    },
+
+    changePassword: async(req:Request, res:Response, next:NextFunction) => {
+        try{
+            //Todo
+            // body parsing and validation
+            const {body, authenticatedUser}= req as IChangePasswordRequest
+            const {error,value}=validateJoiSchema<IChangePasswordRequestBody>(validateChangePasswordBody,body)
+            if (error){
+                httpError(next, error , req, 422)
+            }
+            
+            // find user by id
+            const user = await databaseService.findUserById(authenticatedUser._id, '+password' )
+
+            if(!user){
+               return httpError(next, new Error(responseMessage.NOT_Found(`user`)) ,req,404)
+            }
+            const {oldPassword, newPassword} = value
+            // check if old password is matched with stored password
+            const isPasswordMatching = await quicker.comparePassword(oldPassword, user.password)
+            if(!isPasswordMatching){
+                return httpError(next, new Error(responseMessage.INVALID_OLD_PASSWORD), req,400)
+            }
+            if(newPassword ===oldPassword){
+                return httpError(next, new Error(responseMessage.PASSWORD_MATCHING_WITH_OLD_PASSWORD), req, 400)
+            }
+            // password hash for new password
+            const hashedPassword= await quicker.hashPassword(newPassword)
+            // user update
+            user.password=hashedPassword
+            await user.save()
+
+            // email send
+              const to = [user.emailAddress]
+            const subject = 'password Changed'
+            const text = `Hey ${user.name}, your account password has been changed successfully. `
+            
+            emailService.sendEmail(to, subject, text).catch((err) => {
+                logger.error('EMAIL_SERVICE', {
+                    meta:err
+                })
+            })
+
+            httpResponse(req, res, 200 , responseMessage.SUCCESS)
+        } catch (err){
+            httpError(next, err, req,500)
+        }
+    }
+
+
+
 
 
 }

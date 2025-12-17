@@ -34,13 +34,24 @@ export default {
         return refreshTokenModel.create(payload)
     },
 
-     findUserById: (id : string ) => {
-        return userModel.findById(id)
+     findUserById: (id : string, select='' ) => {
+        return userModel.findById(id).select(select)
     },
 
     deleteRefreshToken: (token: string) => {
         return refreshTokenModel.deleteOne({token:token})
-    }
+    },
+
+    findRefreshToken: (token:string) =>{
+        return refreshTokenModel.findOne({token})
+    },
+
+    findUserByResetToken: (token: string) => {
+        return userModel.findOne({
+            'passwordReset.token': token,
+            
+        })
+    },
 
 
 

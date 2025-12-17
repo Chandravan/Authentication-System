@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt'
 import {v4} from 'uuid'
 import { randomInt, verify } from 'crypto'
 import jwt, { TokenExpiredError } from 'jsonwebtoken';
+import dayjs from 'dayjs'
 
 
 
@@ -69,5 +70,9 @@ getDomainFromUrl:( url: string) => {
                 } catch (err){
                     throw err
                 }
+},
+
+generateResetPasswordExpiry: (minute: number) => {
+    return dayjs().valueOf() + minute*60*1000 
 }
 }
